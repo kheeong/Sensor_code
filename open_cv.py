@@ -13,7 +13,12 @@ picam2 = Picamera2()
 config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (1280, 720)})
 picam2.configure(config)
 picam2.start()
-uart = serial.Serial('/dev/serial0', 115200)
+uart = serial.Serial(
+    port="/dev/ttyAMA0",
+    baudrate=115200,
+    timeout=1,
+    write_timeout=2
+)
 time.sleep(0.3)
 
 
@@ -88,6 +93,7 @@ while True:
 
         angle_history.append(relative_angle)
         uart.write(f"{relative_angle:.2f}\n".encode())
+        uart.flush()
         # Draw
         #cv2.circle(frame, (x1, y1), 8, (0, 0, 255), -1)
         #cv2.circle(frame, (x2, y2), 8, (0, 0, 255), -1)
