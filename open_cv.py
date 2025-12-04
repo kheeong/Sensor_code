@@ -5,7 +5,7 @@ import math
 import matplotlib.pyplot as plt
 from collections import deque
 from picamera2 import Picamera2
-
+import serial
 # -----------------------------
 # Settings
 # -----------------------------
@@ -13,6 +13,7 @@ picam2 = Picamera2()
 config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (1280, 720)})
 picam2.configure(config)
 picam2.start()
+uart = serial.Serial('/dev/serial0', 115200)
 time.sleep(0.3)
 
 
@@ -32,7 +33,7 @@ def find_green_centroids(frame):
     mask = cv2.medianBlur(mask, 7)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+    
     centroids = []
     for c in contours:
         if cv2.contourArea(c) < 200:
@@ -86,7 +87,7 @@ while True:
         relative_angle = angle_deg - baseline_angle
 
         angle_history.append(relative_angle)
-
+        uart.write(f"{relative_angle:.2f}\n".encode())
         # Draw
         #cv2.circle(frame, (x1, y1), 8, (0, 0, 255), -1)
         #cv2.circle(frame, (x2, y2), 8, (0, 0, 255), -1)
@@ -100,7 +101,7 @@ while True:
     fig.canvas.draw()
     fig.canvas.flush_events()
 
-    cv2.imshow("frame", frame)
+    #cv2.imshow("frame", frame)
     cv2.imshow("mask", mask)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):
