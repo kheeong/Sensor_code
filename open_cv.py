@@ -88,11 +88,10 @@ while True:
         angle_history.append(relative_angle)
 
         # Draw
-        cv2.circle(frame, (x1, y1), 8, (0, 0, 255), -1)
-        cv2.circle(frame, (x2, y2), 8, (0, 0, 255), -1)
-        cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-        cv2.putText(frame, f"Angle: {relative_angle:.2f} deg",
-                    (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        #cv2.circle(frame, (x1, y1), 8, (0, 0, 255), -1)
+        #cv2.circle(frame, (x2, y2), 8, (0, 0, 255), -1)
+        #cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        #cv2.putText(frame, f"Angle: {relative_angle:.2f} deg",(30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
     # Update plot
     line.set_xdata(range(len(angle_history)))
@@ -110,7 +109,18 @@ while True:
 # -----------------------------
 # Cleanup OpenCV (BUT keep plot open)
 # -----------------------------
-cap.release()
+#cap.release()
+
+import csv
+
+with open("angle_history.csv", "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(["frame", "angle_deg"])
+    for i, angle in enumerate(angle_history):
+        writer.writerow([i, angle])
+
+print("Saved CSV: angle_history.csv")
+
 cv2.destroyAllWindows()
 
 # Keep the plot open
