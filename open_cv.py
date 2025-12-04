@@ -1,12 +1,21 @@
 import cv2
+imop
 import numpy as np
 import math
 import matplotlib.pyplot as plt
 from collections import deque
+from picamera2 import Picamera2
 
 # -----------------------------
 # Settings
 # -----------------------------
+picam2 = Picamera2()
+config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (1280, 720)})
+picam2.configure(config)
+picam2.start(); 
+time.sleep(0.3)
+
+
 USE_WEBCAM = False
 VIDEO_PATH = "test_video.mp4"
 
@@ -38,7 +47,7 @@ def find_green_centroids(frame):
     return centroids, mask
 
 # -----------------------------
-cap = cv2.VideoCapture(0) if USE_WEBCAM else cv2.VideoCapture(VIDEO_PATH)
+#cap = cv2.VideoCapture(0) if USE_WEBCAM else cv2.VideoCapture(VIDEO_PATH)
 
 calibrated = False
 baseline_angle = 0
@@ -55,7 +64,8 @@ ax.set_title("Pendulum Angle")
 
 # -----------------------------
 while True:
-    ret, frame = cap.read()
+    frame = picam2.capture_array()
+    ret = True
     if not ret:   # video ended
         break
 
