@@ -1,5 +1,5 @@
 import cv2
-imop
+import time
 import numpy as np
 import math
 import matplotlib.pyplot as plt
@@ -12,7 +12,7 @@ from picamera2 import Picamera2
 picam2 = Picamera2()
 config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (1280, 720)})
 picam2.configure(config)
-picam2.start(); 
+picam2.start()
 time.sleep(0.3)
 
 
