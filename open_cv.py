@@ -140,9 +140,11 @@ while True:
 
         relative_angle = angle_deg - baseline_angle
 
-        angle_history.append(relative_angle)
+        
         v_raw = model.update(relative_angle)
         v_f   = ekf.update(v_raw)
+        angle_history.append(v_f)
+        
         uart.write(f"{v_f:.2f}\n".encode())
         uart.flush()
         # Draw
