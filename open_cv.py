@@ -116,7 +116,7 @@ class EKF1D:
         return self.x
 
 ekf = EKF1D(q=0.021219, r=0.414340)
-model = WindModel(4.9976, 0.6871, -2.4326, 1.8387)
+model = WindModel(a=4.9976, b=0.6871, c=-2.4326, d=1.8387)
 # -----------------------------
 while True:
     frame = picam2.capture_array()
