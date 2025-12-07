@@ -68,6 +68,55 @@ ax.set_xlabel("Frame")
 ax.set_ylabel("Angle (deg)")
 ax.set_title("Pendulum Angle")
 
+
+class WindModel:
+    def __init__(self, a, b, c, d):
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+
+    def update(self, theta_rad):
+        # Clip to avoid tan(90°)
+        th = np.clip(theta_rad, -np.deg2rad(85), np.deg2rad(85))
+
+        # compute terms
+        tan_th = np.tan(th)
+        tan_th = max(0.0, tan_th)     # avoid negative domain issues
+
+        th_pos = max(0.0, theta_rad)  # ensure non-negative for theta^d
+
+        # compute model
+        v = self.a * (tan_th ** self.b) + self.c * (th_pos ** self.d)
+        return v
+
+class EKF1D:
+    def __init__(self, q, r):
+        self.q = q      # process noise
+        self.r = r      # measurement noise
+        self.x = 0.0    # state estimate
+        self.p = 1.0    # covariance
+        self.initialized = False
+
+    def update(self, z):
+        # first measurement initializes the filter
+        if not self.initialized:
+            self.x = z
+            self.initialized = True
+
+        # Predict
+        x_pred = self.x
+        p_pred = self.p + self.q
+
+        # Update
+        K = p_pred / (p_pred + self.r)
+        self.x = x_pred + K * (z - x_pred)
+        self.p = (1 - K) * p_pred
+
+        return self.x
+
+ekf = EKF1D(q=0.021219, r=0.414340)
+model = WindModel(4.9976, 0.6871, -2.4326, 1.8387)
 # -----------------------------
 while True:
     frame = picam2.capture_array()
@@ -92,7 +141,9 @@ while True:
         relative_angle = angle_deg - baseline_angle
 
         angle_history.append(relative_angle)
-        uart.write(f"{relative_angle:.2f}\n".encode())
+        v_raw = model.update(relative_angle)
+        v_f   = ekf.update(v_raw)
+        uart.write(f"{v_f:.2f}\n".encode())
         uart.flush()
         # Draw
         #cv2.circle(frame, (x1, y1), 8, (0, 0, 255), -1)
