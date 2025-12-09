@@ -141,7 +141,7 @@ while True:
         relative_angle = angle_deg - baseline_angle
 
         
-        v_raw = model.update(relative_angle)
+        v_raw = model.update(np.deg2rad(relative_angle))
         v_f   = ekf.update(v_raw)
         angle_history.append(v_f)
         
