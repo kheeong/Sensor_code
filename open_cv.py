@@ -6,9 +6,15 @@ import matplotlib.pyplot as plt
 from collections import deque
 from picamera2 import Picamera2
 import serial
+import threading
 # -----------------------------
 # Settings
 # -----------------------------
+MEAS_HZ = 8.0          # vision measurement rate (sample)
+OUT_HZ  = 200.0        # output/logging rate (hold)
+MEAS_DT = 1.0 / MEAS_HZ
+OUT_DT  = 1.0 / OUT_HZ
+
 picam2 = Picamera2()
 config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (1280, 720)})
 picam2.configure(config)
@@ -117,72 +123,122 @@ class EKF1D:
 
 ekf = EKF1D(q=0.021219, r=0.414340)
 model = WindModel(a=4.9976, b=0.6871, c=-2.4326, d=1.8387)
+
+lock = threading.Lock()
+last_v = 0.0
+last_mask = None
+have_sample = False
+
+calibrated = False
+baseline_angle = 0.0
+
+stop_flag = False
+
+def measurement_thread():
+    """Runs at ~8 Hz: capture frame -> compute new sample -> publish last_v."""
+    global last_v, last_mask, have_sample, calibrated, baseline_angle, stop_flag
+
+    next_t = time.monotonic()
+    while not stop_flag:
+        now = time.monotonic()
+        if now < next_t:
+            time.sleep(next_t - now)
+        next_t += MEAS_DT
+
+        frame = picam2.capture_array()
+
+        centroids, mask = find_green_centroids(frame)
+
+        v_f = None
+        if len(centroids) == 2:
+            centroids = sorted(centroids, key=lambda x: x[1])
+            (x1, y1), (x2, y2) = centroids
+            dx = x2 - x1
+            dy = y2 - y1
+            angle_deg = math.degrees(math.atan2(dx, dy))
+
+            if not calibrated:
+                baseline_angle = angle_deg
+                calibrated = True
+
+            relative_angle = angle_deg - baseline_angle
+
+            v_raw = model.update(np.deg2rad(relative_angle))
+            v_f = ekf.update(v_raw)
+
+        with lock:
+            last_mask = mask
+            if v_f is not None:
+                last_v = float(v_f)
+                have_sample = True
+            # if v_f is None: do nothing -> HOLD last_v
+
 # -----------------------------
-while True:
-    frame = picam2.capture_array()
-    ret = True
-    if not ret:   # video ended
-        break
+# Plot (update less often)
+# -----------------------------
+plt.ion()
+fig, ax = plt.subplots()
+line, = ax.plot([], [], linewidth=2)
+ax.set_ylim(-90, 90)
+ax.set_xlabel("Sample @200Hz")
+ax.set_ylabel("v_f")
+ax.set_title("Held / Upsampled Output (200 Hz)")
 
-    centroids, mask = find_green_centroids(frame)
-
-    if len(centroids) == 2:
-        centroids = sorted(centroids, key=lambda x: x[1])
-        (x1, y1), (x2, y2) = centroids
-
-        dx = x2 - x1
-        dy = y2 - y1
-        angle_deg = math.degrees(math.atan2(dx, dy))
-
-        if not calibrated:
-            baseline_angle = angle_deg
-            calibrated = True
-
-        relative_angle = angle_deg - baseline_angle
-
-        
-        v_raw = model.update(np.deg2rad(relative_angle))
-        v_f   = ekf.update(v_raw)
-        angle_history.append(v_f)
-        
-        uart.write(f"{v_f:.2f}\n".encode())
-        uart.flush()
-        # Draw
-        #cv2.circle(frame, (x1, y1), 8, (0, 0, 255), -1)
-        #cv2.circle(frame, (x2, y2), 8, (0, 0, 255), -1)
-        #cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-        #cv2.putText(frame, f"Angle: {relative_angle:.2f} deg",(30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-
-    # Update plot
-    line.set_xdata(range(len(angle_history)))
-    line.set_ydata(angle_history)
-    ax.set_xlim(0, max(200, len(angle_history)))
-    fig.canvas.draw()
-    fig.canvas.flush_events()
-
-    #cv2.imshow("frame", frame)
-    cv2.imshow("mask", mask)
-
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+# Start measurement sampler
+t = threading.Thread(target=measurement_thread, daemon=True)
+t.start()
 
 # -----------------------------
-# Cleanup OpenCV (BUT keep plot open)
+# Output loop at 200 Hz (sample-and-hold)
 # -----------------------------
-#cap.release()
+next_out = time.monotonic()
+plot_div = 10  # update plot every 10 outputs = 20 Hz plotting (lighter)
+k = 0
 
-import csv
+try:
+    while True:
+        now = time.monotonic()
+        if now < next_out:
+            time.sleep(next_out - now)
+        next_out += OUT_DT
 
-with open("angle_history.csv", "w", newline="") as f:
-    writer = csv.writer(f)
-    writer.writerow(["frame", "angle_deg"])
-    for i, angle in enumerate(angle_history):
-        writer.writerow([i, angle])
+        with lock:
+            v_out = last_v
+            mask = last_mask
+            ok = have_sample
 
-print("Saved CSV: angle_history.csv")
+        if ok:
+            angle_history.append(v_out)
+            uart.write(f"{v_out:.2f}\n".encode())
+            # uart.flush()  # usually not needed every line; uncomment if required
 
-cv2.destroyAllWindows()
+        # Plot less frequently (don’t try to redraw at 200 Hz)
+        if (k % plot_div) == 0 and len(angle_history) > 2:
+            line.set_xdata(range(len(angle_history)))
+            line.set_ydata(angle_history)
+            ax.set_xlim(max(0, len(angle_history) - int(OUT_HZ * 5)), len(angle_history))  # last 5s
+            fig.canvas.draw()
+            fig.canvas.flush_events()
 
-# Keep the plot open
-plt.ioff()
-plt.show()
+        # Show mask (8 Hz updates; will "hold" between samples too)
+        if mask is not None:
+            cv2.imshow("mask", mask)
+
+        k += 1
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+finally:
+    stop_flag = True
+    cv2.destroyAllWindows()
+    plt.ioff()
+    plt.show()
+
+    # Save CSV (200 Hz samples)
+    import csv
+    with open("angle_history_200hz.csv", "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["idx_200hz", "v_f_held"])
+        for i, v in enumerate(angle_history):
+            w.writerow([i, v])
+    print("Saved CSV: angle_history_200hz.csv")
